@@ -129,7 +129,7 @@ The PFNDB stores differing data for different sorts of pages. The format for
 The total size thus amounts to 32 bytes.
 
 For 64-bit ports, the same format is used, except `pfn` is 52 bits, and padding
-between `used_ptes`` and `referent_ptes` yields a structure totalling 64 bytes.`
+between `used_ptes` and `referent_ptes` yields a structure totalling 64 bytes.
 
 The fields provide information about pages. The first field is the actual page
 frame number of a page.
@@ -207,14 +207,49 @@ Page Table Entries
 The VMM by relying on the existence of traditional multi-level page tables can
 store metadata more optimally. In contrast to Mach-style VMMs, Keyronex VM
 uses the native page tables of the architecture to store metadata and does not
-treat them as purely caches of moer abstract datastructures.
+treat them as purely caches of more abstract datastructures.
 
-Page table entries can then be either software or hardware PTEs.
-or 
+For consistency, the PTE format is also used by abstract datastructures of the
+Keyronex VM - when PTEs are used in this way, in locations where they will never
+be interpreted by the MMU itself, they are called prototype PTEs. Prototype
+PTEs are used to implement shared anonymous, file cache, and forked anonymous
+memory.
 
-.. todo::
-    explain what kind of software PTEs: swap descriptors, transitionals,
-    vmp_anon pointers...
+Page table entries can then be either software or hardware PTEs. A hardware PTE
+has the valid bit set, while a software PTE does not. The general format of
+software PTEs varies depending on the architecture, but looks roughly like this
+on a 32-bit platform:
+
+.. code-block:: c
+
+    enum soft_pte_kind kind: 2;
+    uintptr_t   data:   29;
+    bool        valid:   1;
+
+On 64-bit platforms, the `data` field is instead around 61 bits in length.
+
+There are several kinds of software PTEs:
+
+Transition PTEs
+    These are created when a private anonymous page is evicted from a process'
+    working set. The `data` field is the PFN number of the anonymous page.
+
+Swap Descriptor PTEs
+    These are created when a private anonymous page is paged out at the global
+    level, i.e. written to disk and removed from the standby page queue. The
+    `data` field is a unique number by which the swapped-out page can be
+    retrieved from the pagefile.
+
+Fork PTEs:
+    These are created when the Posix fork() operation is carried out. The `data`
+    field is a pointer to the `vmp_anon` structure (described later) which holds
+    the prototype PTE (again described later). The pointer can fit here because
+    `vmp_anon`\ s are always 8-byte aligned, meaning the 3 low bits are always
+    zero and can accordingly be shifted away. (If it were necessary to shrink
+    the number of bits used for the `data` field even further, we could do so
+    by storing the vmp_anon as an offset from the kernel heap base instead; this
+    would save yet more bits).
+
 
 Amaps
 -----
@@ -224,6 +259,14 @@ Amaps
 
 Forked Anonymous and `vmp_anon`\ s
 ----------------------------------
+
+.. code-block:: c
+
+    pte_t       pte;
+    uint32_t    refcnt;
+
+On 32-bit platforms this makes 8 bytes, while on 64-bit platforms padding is
+added to extend it from 12 to 16 bytes.
 
 .. todo::
     describe support for fork()
