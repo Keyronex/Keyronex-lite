@@ -80,8 +80,7 @@ secondary page cache for optimal performance.
 Page Frame Number Database (aka PFN Database, PFNDB)
 -----------------------------------------------------
 
-The PFN database is a set of databases (one for every contiguous region of main
-memory) describing the current state of each page of main memory. It is
+The PFN database describes the current state of each page of main memory. It is
 organised as an array at the start of each contiguous region of main memory,
 each linked into a queue of regions so that the PFNDB entry corresponding to a
 physical address can be quickly determined
