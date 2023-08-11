@@ -25,7 +25,7 @@
             "${commentend}"
 		]
 	},
-	"esbonio.sphinx.confDir": "",
+	"esbonio.sphinx.confDir": "${workspaceFolder}/docs/notes",
 	"C/C++ Include Guard.Auto Update Include Guard": false,
 	"files.insertFinalNewline": true,
 	"files.trimTrailingWhitespace": true,

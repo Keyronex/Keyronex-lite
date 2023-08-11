@@ -57,3 +57,12 @@ else
 	message('\n\tport ' + port + ' is not supported by Keyronex')
 	error('\n\tbad port')
 endif
+
+freestanding_include_directories =[
+	include_directories('../include', '../third_party/include')
+]
+
+soft = executable('soft', 'test.c',
+	c_args: freestanding_c_args,
+	include_directories: freestanding_include_directories
+)

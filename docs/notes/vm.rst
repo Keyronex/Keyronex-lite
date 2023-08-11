@@ -77,7 +77,7 @@ One of the main jobs of the VMM is to achieve a balance between the sizes of
 the primary page cache (and between the working sets comprising it) and the
 secondary page cache for optimal performance.
 
-Page Frame Number Database (aka PFN Database, PFNDB)
+Page Frame Database (aka PFN Database, PFNDB)
 -----------------------------------------------------
 
 The PFN database describes the current state of each page of main memory. It is
@@ -97,28 +97,27 @@ The PFNDB stores differing data for different sorts of pages. The format for
 
 .. code-block:: c
 
-    /* first word */
-    uintptr_t   pfn:    20;
-    enum        use:    4;
-    enum        state:  3;
-    bool        dirty:  1;
-    uintptr_t   padding: 4;
-
-    /* second word */
-    uint16_t    refcnt;
-    uint16_t used_ptes;
-
-    /* third word */
-    paddr_t referent_pte;
-
-    /* 4th, 5th words */
-    union {
-        TAILQ_ENTRY(vm_pfn) entry;
-        struct vmp_pager_request *pager_request;
-    };
-
-    /* 6th, 7th, 8th words */
-    RB_ENTRY(vm_pfn) file_tree_entry;
+	/* 1st word */
+	uintptr_t   pfn : 20;
+	vm_page_use use : 4;
+	bool        dirty : 1;
+	bool	    busy : 1;
+	uintptr_t   padding : 6;
+	/* 2nd word */
+	union {
+		uint16_t used_ptes : 16;
+		size_t   offset : 48;
+	};
+	uint16_t refcnt;
+	/* 3rd word */
+	paddr_t referent_pte;
+	/* 4th, 5th words */
+	union {
+		TAILQ_ENTRY(vm_pfn)	  entry;
+		struct vmp_pager_request *pager_request;
+	};
+	/* 6th word */
+	void *owner;
 
 
 .. todo::
@@ -137,9 +136,21 @@ What a page is being used for is tracked by `use`. The uses are Free, Deleted,
 Anonymous Private; Anonymous Forked; Anonymous Shared; File Cache; Amap Levels
 3, 2, or 1; or hardware-specific uses for native page tables.
 
-Pages can be in several states. The states are tied to the reference count; for
-a reference count of 1 or above, the state must be Active, while for 0, it must
-be Modified, Standby, or Free.
+Pages can be in several states. The states are tied to the reference count, and
+the following algorithm determines a page's state:
+
+.. code-block::
+
+    If Page.refcnt > 0
+        State = Active
+    Else If Page.use = Free
+        State = Free
+    Else If Page.dirty
+        State = Modified
+    Else
+        State = Standby
+
+The states mean:
 
 Active
     The page is mapped in at least one working set or has been wired, e.g.
@@ -156,15 +167,13 @@ Standby
 Free
     The page is available for immediate reuse.
 
-.. todo::
-    How about for a page which is currently being written out to disk? It gets
-    promoted to Active until pageout is complete, presumably.
-    And what about for a page being paged in? We must want a flag or new state
-    for that case so that people know to wait on its pager request.
+Note that a page being written to disk is in the Active state because of the
+reference to it held by the paging MDL. A page being read from disk is also in
+the Active state, and has the `busy` bit set to indicate this.
 
 The `dirty` field notes whether the page is explicitly known to be dirty. It is
 OR'd into the PFNDB entry at the time of a page's removal from a working set, or
-may be done explicitly. (This field is extraneous?)
+may be done explicitly.
 
 The `refcnt` field is the number of wires on a page and determines whether the
 page can be evicted or freed. The refcount dropping to zero will place a page
@@ -178,7 +187,7 @@ the reference count; if it drops to 0, the page use is set to Deleted so that
 when the reference count is dropped to 0, the page is freed.
 
 PFNDB entries also carry a pointer to the PTE which maps a given page. The
-definition of this varies depending on the use:
+definition of this varies depending on the page use:
 
 Private anonymous, hardware page tables:
     In this case, it is the actual hardware PTE that maps either this page (in a
@@ -190,8 +199,8 @@ Shared anonymous, Amap tables:
 Anonymous forked:
     Points to the `pte` field within the `vmp_anon` that this page belongs to.
 File cache:
-    referent_pte is instead the page index within the file
-    
+    referent_pte points to the `vmp_filepage`\ 's `pte` element'.
+
     .. todo::
         we don't have a way of getting the file object from this, which we need
         to update the prototype PTE!
