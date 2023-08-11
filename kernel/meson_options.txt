@@ -1,0 +1,3 @@
+option('port', type: 'combo', choices: [
+    'amd64', 'virt-m68k', 'virt-aarch64', 'soft'
+])
