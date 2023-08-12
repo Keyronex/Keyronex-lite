@@ -69,8 +69,7 @@ vmp_md_wire_pte(vmp_procstate_t *vmps, vaddr_t vaddr,
 		paddr_t *pml2_phys = (void *)(PFN_TO_PADDR(
 		    pml3_virt[addr.top].hw.pfn));
 		pml2_page = vm_paddr_to_page((paddr_t)pml2_phys);
-		/* direct manipulation legal - page validly mapped */
-		pml2_page->refcnt++;
+		vmp_page_retain_locked(pml2_page, &vmps->account);
 		state->mid_page = pml2_page;
 	} else {
 		kfatal("Unhandled\n");
@@ -91,7 +90,11 @@ fetch_pml1:
 		if (r != 0)
 			return r;
 
-		/* direct manipulation legal - page is validly mapped */
+		/*
+		 * increment refcnt and used_ptes of parent pagetable
+		 * accordingly. legal to increment straightforwardly as we know
+		 * the page is validly mapped.
+		 */
 		pml2_page->refcnt++;
 		pml2_page->used_ptes += 1;
 		pml1_page->referent_pte = (paddr_t)&pml2_phys[addr.mid];
@@ -106,8 +109,7 @@ fetch_pml1:
 		pte_hw_t *pml1_phys = (void *)(PFN_TO_PADDR(
 		    pml2_virt[addr.mid].hw.pfn));
 		pml1_page = vm_paddr_to_page((paddr_t)pml1_phys);
-		/* direct manipulation legal -page is validly mapped */
-		pml1_page->refcnt++;
+		vmp_page_retain_locked(pml1_page, &vmps->account);
 		state->bot_page = pml1_page;
 	} else {
 		kfatal("Unhandled\n");
@@ -149,7 +151,7 @@ free_pagetable(vmp_procstate_t *vmps, vm_page_t *page)
 	} else if (page->use == kPageUsePML3) {
 		kfatal("Free PML3\n");
 	} else {
-		kfatal("Unexpected paeg use\n");
+		kfatal("Unexpected page use\n");
 	}
 }
 
@@ -157,7 +159,6 @@ static void
 vmp_pagetable_page_pte_became_zero(vmp_procstate_t *vmps, vm_page_t *page)
 {
 	page->used_ptes--;
-
 	if (page->used_ptes == 0)
 		free_pagetable(vmps, page);
 	else

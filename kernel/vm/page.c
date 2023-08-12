@@ -191,6 +191,8 @@ vmp_page_free_locked(vm_page_t *page)
 	kassert(page->use == kPageUseDeleted);
 	kassert(page->refcnt == 0);
 
+	kprintf("Freeing page %p\n", page);
+
 	page->dirty = false;
 	page->referent_pte = 0;
 	page->use = kPageUseDeleted;
@@ -268,10 +270,10 @@ vmp_page_release_locked(vm_page_t *page, vm_account_t *account)
 		if (page->use == kPageUseDeleted) {
 			vmp_page_free_locked(page);
 		} else if (page->dirty) {
-			TAILQ_REMOVE(&vm_pagequeue_modified, page, queue_link);
+			TAILQ_INSERT_TAIL(&vm_pagequeue_modified, page, queue_link);
 			vmstat.nmodified++;
 		} else {
-			TAILQ_REMOVE(&vm_pagequeue_standby, page, queue_link);
+			TAILQ_INSERT_TAIL(&vm_pagequeue_standby, page, queue_link);
 			vmstat.nstandby++;
 		}
 	}

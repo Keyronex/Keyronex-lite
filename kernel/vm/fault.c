@@ -109,12 +109,14 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 				    out_account);
 			}
 
-			vmp_wsl_insert(vmps, vaddr);
-			state->pte->hw.pfn = new_page->pfn;
-			state->pte->hw.valid = 1;
-			state->pte->hw.writeable = 0;
-			state->bot_page->refcnt++;
+			vmp_md_pte_make_hw(state->pte, new_page->pfn, false);
+			/*
+			 * must update this first as vmp_wsl_insert may evict a
+			 * page and reduced used_ptes to zero
+			 */
+			 state->bot_page->refcnt++;
 			state->bot_page->used_ptes++;
+			vmp_wsl_insert(vmps, vaddr);
 		} else {
 			kfatal("Section page\n");
 		}

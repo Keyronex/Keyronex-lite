@@ -33,7 +33,10 @@ vm_page_evict(vmp_procstate_t *ps, pte_t *pte)
 
 	switch (page->use) {
 	case kPageUseAnonPrivate: {
-		/* we need to replace this with a transition PTE then */
+		/*
+		 * we need to replace this with a transition PTE then.
+		 * used_ptes count is as such unchanged.
+		 */
 		page->referent_pte = V2P((vaddr_t)pte);
 		vmp_md_pte_make_trans(pte, page->pfn);
 		vmp_page_release_locked(page, &ps->account);
@@ -88,5 +91,7 @@ void vmp_wsl_remove(vmp_procstate_t*ps, vaddr_t vaddr)
 	struct vmp_wsle *wsle;
 
 	kassert(vmp_wsl_find(ps, vaddr) == NULL);
+
+	kfatal("Implement this function\n");
 
 }
