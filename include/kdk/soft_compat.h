@@ -1,9 +1,11 @@
 #ifndef KRX_KDK_SOFT_COMPAT_H
 #define KRX_KDK_SOFT_COMPAT_H
 
+#include <assert.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #define elementsof(x) (sizeof(x) / sizeof((x)[0]))
 #define ROUNDUP(addr, align) (((addr) + align - 1) & ~(align - 1))

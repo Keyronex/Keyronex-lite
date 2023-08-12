@@ -62,7 +62,11 @@ freestanding_include_directories =[
 	include_directories('../include', '../third_party/include')
 ]
 
-soft = executable('soft', 'test.c',
+kernel_sources = []
+
+subdir('vm')
+
+soft = executable('soft', 'test.c', kernel_sources,
 	c_args: freestanding_c_args,
 	include_directories: freestanding_include_directories
 )

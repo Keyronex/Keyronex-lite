@@ -97,37 +97,33 @@ The PFNDB stores differing data for different sorts of pages. The format for
 
 .. code-block:: c
 
-	/* 1st word */
-	uintptr_t   pfn : 20;
-	vm_page_use use : 4;
-	bool        dirty : 1;
-	bool	    busy : 1;
-	uintptr_t   padding : 6;
-	/* 2nd word */
-	union {
-		uint16_t used_ptes : 16;
-		size_t   offset : 48;
-	};
-	uint16_t refcnt;
-	/* 3rd word */
-	paddr_t referent_pte;
-	/* 4th, 5th words */
-	union {
-		TAILQ_ENTRY(vm_pfn)	  entry;
-		struct vmp_pager_request *pager_request;
-	};
-	/* 6th word */
-	void *owner;
+    /* 1st word */
+    uintptr_t   pfn : 20;
+    vm_page_use use : 4;
+    bool        dirty : 1;
+    bool        busy : 1;
+    uintptr_t   padding : 6;
+    /* 2nd word */
+    union {
+        uint16_t used_ptes : 16;
+        size_t   offset : 48;
+    };
+    uint16_t refcnt;
+    /* 3rd word */
+    paddr_t referent_pte;
+    /* 4th, 5th words */
+    union {
+        TAILQ_ENTRY(vm_pfn)      queue_link;
+        struct vmp_pager_request *pager_request;
+    };
+    /* 6th word */
+    void *owner;
+    /* 7th word */
+    uintptr_t swap_descriptor;
 
 
-.. todo::
-    Anonymous should carry a swap descriptor somewhere in this so that they can
-    be written to disk but remain on the standby list.
-
-The total size thus amounts to 32 bytes.
-
-For 64-bit ports, the same format is used, except `pfn` is 52 bits, and padding
-between `used_ptes` and `referent_ptes` yields a structure totalling 64 bytes.
+The total size thus amounts to 32 bytes. For 64-bit ports, the same format is used, except `pfn` is
+52 bits, yielding a structure totalling 56 bytes.
 
 The fields provide information about pages. The first field is the actual page
 frame number of a page.
@@ -184,7 +180,9 @@ Pages which contain page tables (either Amaps, described later, or hardware page
 tables) make use of the `used_ptes` field to indicate how many non-zero PTEs are
 in that page. The `used_ptes` field is incremented and decremented together with
 the reference count; if it drops to 0, the page use is set to Deleted so that
-when the reference count is dropped to 0, the page is freed.
+when the reference count is dropped to 0, the page is freed. The field shares
+its location with `offset`, which denotes this page's offset within a file or
+shared anonymous memory object, if it belongs to one of these.
 
 PFNDB entries also carry a pointer to the PTE which maps a given page. The
 definition of this varies depending on the page use:
@@ -201,13 +199,17 @@ Anonymous forked:
 File cache:
     referent_pte points to the `vmp_filepage`\ 's `pte` element'.
 
-    .. todo::
-        we don't have a way of getting the file object from this, which we need
-        to update the prototype PTE!
-        maybe file cache should also use 3-level tables like anonymous does?
-        then we can drop 3 words from a PFNDB entry and have space for an owning
-        file/anonymous section pointer. Trouble is that mappable files may be
-        > 512GiB, so 4 levels may be necessary.
+The `entry` field is for linking the PFNDB element onto the Standby, Modified,
+or Free page queue, while the `pager_request` field (which shares its location,
+since it is used only in the Active state) points to a pager request structure
+describing ongoing page-in I/O.
+
+The `owner` field is used for file cache and shared anonymous memory, and points
+to the section object to which the page belongs.
+
+Finally, the `swap_descriptor` field allows for anonymous memory (either shared,
+forked, or private) to be written to the pagefile before being actually evicted
+from memory.
 
 Page Table Entries
 ------------------
