@@ -23,8 +23,9 @@
 #define PFN_BITS 20
 #endif
 
-typedef uintptr_t vaddr_t, paddr_t, pfn_t;
+typedef uintptr_t	     vaddr_t, paddr_t, pfn_t;
 typedef struct vmp_procstate vmp_procstate_t;
+typedef struct vm_section    vm_section_t;
 
 /*!
  * Protection flags.
@@ -102,6 +103,11 @@ typedef struct vm_account {
 	size_t nalloced;
 	size_t nwires;
 } vm_account_t;
+
+/*!
+ * @brief Add a region of memory to the VMM's management.
+ */
+void vm_region_add(paddr_t base, size_t length);
 
 /*!
  * @brief Allocate a physical page frame.

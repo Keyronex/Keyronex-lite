@@ -59,18 +59,51 @@ typedef struct vmp_procstate {
 	RB_HEAD(vm_vad_rbtree, vm_vad) vad_queue;
 	/*! Count of pages in working set list. */
 	size_t ws_current_count;
+	/*! Account. */
+	vm_account_t account;
 	/*! Per-arch stuff. */
 	struct vmp_md_procstate md;
 } vmp_procstate_t;
 
+/*! roto-level shared anonymous table */
+struct vmp_amap_l3 {
+	struct vmp_amap_l2 *entries[512];
+};
+
+/*! mid-level shared anonymous table */
+struct vmp_amap_l2 {
+	struct vmp_amap_l1 *entries[512];
+};
+
+/*! leaf-level shared anonymous table */
+struct vmp_amap_l1 {
+	pte_t entries[512];
+};
+
 struct vmp_forkpage {
-	void	*pte;
+	pte_t	 pte;
 	uint32_t refcount;
 };
 
 struct vmp_filepage {
+	vm_page_t	      *page;
 	RB_ENTRY(vmp_filepage) rb_entry;
-	void		      *pte;
+};
+
+struct vm_section {
+	/*! What kind of section is this? */
+	enum vm_section_kind {
+		kFile,
+		kAnon,
+	} kind;
+	union {
+		struct {
+			RB_HEAD(vmp_file_page_tree, vm_page) page_tree;
+		} file;
+		struct {
+			struct vmp_amap_l3 *l3;
+		} anon;
+	};
 };
 
 /*! @brief Acquire the PFN database lock. */
@@ -86,6 +119,11 @@ void	   vmp_page_delete_locked(vm_page_t *page, vm_account_t *account,
 	  bool release);
 vm_page_t *vmp_page_retain_locked(vm_page_t *page, vm_account_t *account);
 void	   vmp_page_release_locked(vm_page_t *page, vm_account_t *account);
+
+int
+vmp_fault(vaddr_t vaddr, bool write, vm_page_t **out);
+
+vm_vad_t *vmp_ps_vad_find(vmp_procstate_t *ps, vaddr_t vaddr);
 
 extern kspinlock_t vmp_pfn_lock;
 

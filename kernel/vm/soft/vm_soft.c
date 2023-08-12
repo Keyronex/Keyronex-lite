@@ -1,7 +1,7 @@
 #include "../vmp.h"
 #include "vm/soft/vmp_soft.h"
 
-uint8_t page_contents[PGSIZE * 128];
+extern uint8_t page_contents[PGSIZE * 128];
 
 vaddr_t
 P2V(paddr_t paddr)
@@ -21,7 +21,7 @@ vmp_md_ps_init(vmp_procstate_t *vmps)
 	vm_page_t *page;
 	int	   r;
 
-	r = vm_page_alloc(&page, NULL, kPageUsePML3, false);
+	r = vmp_page_alloc_locked(&page, &vmps->account, kPageUsePML3, false);
 	if (r != 0)
 		return r;
 

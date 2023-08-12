@@ -148,8 +148,9 @@ int
 vm_ps_dump_vadtree(vmp_procstate_t *vmps)
 {
 	vm_vad_t *vad;
+	kprintf("VAD tree summary for process %p:\n", vmps);
 	RB_FOREACH (vad, vm_vad_rbtree, &vmps->vad_queue) {
-		printf("0x%zx-0x%zx\n", vad->start, vad->end);
+		printf("  0x%zx-0x%zx\n", vad->start, vad->end);
 	}
 }
 
@@ -160,5 +161,8 @@ vm_ps_init(vmp_procstate_t *vmps)
 	RB_INIT(&vmps->vad_queue);
 	TAILQ_INIT(&vmps->ws_queue);
 	RB_INIT(&vmps->ws_tree);
+	vmps->account.nalloced = 0;
+	vmps->account.nwires = 0;
+	vmps->ws_current_count = 0;
 	vmp_md_ps_init(vmps);
 }

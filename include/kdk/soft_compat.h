@@ -30,6 +30,7 @@ splget()
 #define kassert(...) assert(__VA_ARGS__)
 #define kfatal(...)                                  \
 	({                                           \
+		printf("At %s:%d:\n", __FILE__, __LINE__); \
 		printf("FATAL ERROR: " __VA_ARGS__); \
 		for (;;)                             \
 			;                            \

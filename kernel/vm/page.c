@@ -32,9 +32,22 @@
 
 typedef TAILQ_HEAD(, vm_page) page_queue_t;
 
+struct vmp_pregion {
+	/*! Linkage to pregion_queue. */
+	TAILQ_ENTRY(vmp_pregion) queue_entry;
+	/*! Base address of region. */
+	paddr_t base;
+	/*! Number of pages the region covers. */
+	size_t npages;
+	/*! PFN database part for region. */
+	vm_page_t pages[0];
+};
+
 DEFINE_PAGEQUEUE(vm_pagequeue_free);
 DEFINE_PAGEQUEUE(vm_pagequeue_modified);
 DEFINE_PAGEQUEUE(vm_pagequeue_standby);
+static TAILQ_HEAD(, vmp_pregion) pregion_queue = TAILQ_HEAD_INITIALIZER(
+    pregion_queue);
 struct vm_stat vmstat;
 kspinlock_t    vmp_pfn_lock = KSPINLOCK_INITIALISER;
 vm_account_t   deleted_account;
@@ -43,6 +56,11 @@ static inline void
 update_page_use_stats(enum vm_page_use use, int value)
 {
 	kassert(ke_spinlock_held(&vmp_pfn_lock));
+
+#define CASE(ENUM, VAR)              \
+	case ENUM:                   \
+		vmstat.VAR += value; \
+		break
 
 	switch (use) {
 	case kPageUseDeleted:
@@ -53,9 +71,75 @@ update_page_use_stats(enum vm_page_use use, int value)
 		vmstat.nanonprivate += value;
 		break;
 
+		CASE(kPageUsePML3, nprocpgtable);
+		CASE(kPageUsePML2, nprocpgtable);
+		CASE(kPageUsePML1, nprocpgtable);
+
 	default:
-		kfatal("Handle");
+		kfatal("Handle\n");
 	}
+}
+
+void
+vm_region_add(paddr_t base, size_t length)
+{
+	struct vmp_pregion *bm = (void *)P2V(base);
+	size_t		    used; /* n bytes used by bitmap struct */
+	int		    b;
+
+	/* set up a pregion for this area */
+	bm->base = base;
+	bm->npages = length / PGSIZE;
+
+	used = ROUNDUP(sizeof(struct vmp_pregion) +
+		sizeof(vm_page_t) * bm->npages,
+	    PGSIZE);
+
+	kprintf("VM: Usable memory area: 0x%zx-0x%zx"
+		"(%zu MiB, %zu pages)\n",
+	    base, base + length, length / (1024 * 1024), length / PGSIZE);
+	kprintf("VM: %zu KiB for PFN database part\n", used / 1024);
+
+	/* initialise pages */
+	for (b = 0; b < bm->npages; b++) {
+		bm->pages[b].pfn = PADDR_TO_PFN(bm->base + PGSIZE * b);
+		// bm->pages[b].anon = NULL;
+		// LIST_INIT(&bm->pages[b].pv_list);
+	}
+
+	/* mark off the pages used */
+	for (b = 0; b < used / PGSIZE; b++) {
+		bm->pages[b].use = 0;
+		bm->pages[b].refcnt = 1;
+	}
+
+	/* now zero the remainder */
+	for (; b < bm->npages; b++) {
+		bm->pages[b].use = 0;
+		TAILQ_INSERT_TAIL(&vm_pagequeue_free, &bm->pages[b],
+		    queue_link);
+	}
+
+	vmstat.nfree += bm->npages - (used / PGSIZE);
+	// vmstat.ntotal += bm->npages;
+
+	TAILQ_INSERT_TAIL(&pregion_queue, bm, queue_entry);
+}
+
+vm_page_t *
+vm_paddr_to_page(paddr_t paddr)
+{
+	struct vmp_pregion *preg;
+
+	TAILQ_FOREACH (preg, &pregion_queue, queue_entry) {
+		if (preg->base <= paddr &&
+		    (preg->base + PGSIZE * preg->npages) > paddr) {
+			return &preg->pages[(paddr - preg->base) / PGSIZE];
+		}
+	}
+
+	kfatal("No page for paddr 0x%zx\n", paddr);
+	return NULL;
 }
 
 int
