@@ -1,4 +1,5 @@
 #include "../vmp.h"
+#include "kdk/vm.h"
 #include "vm/soft/vmp_soft.h"
 
 extern uint8_t page_contents[PGSIZE * 128];
@@ -31,7 +32,8 @@ vmp_md_ps_init(vmp_procstate_t *vmps)
 }
 
 vm_fault_return_t
-vmp_md_wire_pte(vaddr_t vaddr, struct vmp_md_fault_state *state)
+vmp_md_wire_pte(vmp_procstate_t *vmps, vaddr_t vaddr,
+    struct vmp_md_fault_state *state)
 {
 	union soft_addr addr;
 	vm_page_t      *pml2_page, *pml1_page;
@@ -47,9 +49,8 @@ vmp_md_wire_pte(vaddr_t vaddr, struct vmp_md_fault_state *state)
 	if (state->mid_page != NULL)
 		goto fetch_pml1;
 	else if (vmp_md_pte_is_empty(&pml3_virt[addr.top])) {
-		int r = vmp_page_alloc_locked(&pml2_page, NULL, kPageUsePML2,
-		    false);
-		int l3i_base = ROUNDDOWN(addr.top, 8);
+		int	  r = vmp_page_alloc_locked(&pml2_page, &vmps->account,
+			  kPageUsePML2, false);
 		uintptr_t pml2_phys;
 
 		if (r != 0)
@@ -68,6 +69,7 @@ vmp_md_wire_pte(vaddr_t vaddr, struct vmp_md_fault_state *state)
 		paddr_t *pml2_phys = (void *)(PFN_TO_PADDR(
 		    pml3_virt[addr.top].hw.pfn));
 		pml2_page = vm_paddr_to_page((paddr_t)pml2_phys);
+		/* direct manipulation legal - page validly mapped */
 		pml2_page->refcnt++;
 		state->mid_page = pml2_page;
 	} else {
@@ -82,13 +84,14 @@ fetch_pml1:
 	if (state->bot_page != NULL)
 		goto fetch_pte;
 	else if (vmp_md_pte_is_empty(&pml2_virt[addr.mid])) {
-		int r = vmp_page_alloc_locked(&pml1_page, NULL, kPageUsePML1,
-		    false);
+		int	  r = vmp_page_alloc_locked(&pml1_page, &vmps->account,
+			  kPageUsePML1, false);
 		uintptr_t pml1_phys;
 
 		if (r != 0)
 			return r;
 
+		/* direct manipulation legal - page is validly mapped */
 		pml2_page->refcnt++;
 		pml2_page->used_ptes += 1;
 		pml1_page->referent_pte = (paddr_t)&pml2_phys[addr.mid];
@@ -98,13 +101,16 @@ fetch_pml1:
 		pml2_virt[addr.mid].hw.valid = 1;
 		pml2_virt[addr.mid].hw.writeable = 1;
 		state->bot_page = pml1_page;
-	} else {
+	} else if (vmp_md_pte_is_valid(&pml2_virt[addr.mid])) {
 		/* assuming it's valid... */
 		pte_hw_t *pml1_phys = (void *)(PFN_TO_PADDR(
 		    pml2_virt[addr.mid].hw.pfn));
 		pml1_page = vm_paddr_to_page((paddr_t)pml1_phys);
+		/* direct manipulation legal -page is validly mapped */
 		pml1_page->refcnt++;
 		state->bot_page = pml1_page;
+	} else {
+		kfatal("Unhandled\n");
 	}
 
 fetch_pte:
@@ -117,7 +123,7 @@ fetch_pte:
 }
 
 static void
-free_pagetable(vm_page_t *page)
+free_pagetable(vmp_procstate_t *vmps, vm_page_t *page)
 {
 #if VM_DEBUG_PAGETABLES
 	pac_printf("Pagetable page 0x%zx to be freed. Its referent PTE is %p. "
@@ -137,9 +143,9 @@ free_pagetable(vm_page_t *page)
 		if (page->use != kPageUsePML2) {
 			parent_page->used_ptes--;
 			if (parent_page->used_ptes == 0)
-				free_pagetable(parent_page);
+				free_pagetable(vmps, parent_page);
 		}
-		vmp_page_delete_locked(page, NULL, true);
+		vmp_page_delete_locked(page, &vmps->account, true);
 	} else if (page->use == kPageUsePML3) {
 		kfatal("Free PML3\n");
 	} else {
@@ -148,14 +154,14 @@ free_pagetable(vm_page_t *page)
 }
 
 static void
-vmp_pagetable_page_pte_became_zero(vm_page_t *page)
+vmp_pagetable_page_pte_became_zero(vmp_procstate_t *vmps, vm_page_t *page)
 {
 	page->used_ptes--;
 
 	if (page->used_ptes == 0)
-		free_pagetable(page);
+		free_pagetable(vmps, page);
 	else
-		vmp_page_release_locked(page, NULL);
+		vmp_page_release_locked(page, &vmps->account);
 }
 
 /*
@@ -237,14 +243,15 @@ vmp_md_unmap_range_and_do(vmp_procstate_t *vmps, vaddr_t vstart, vaddr_t vend,
 		if (callback)
 			callback(context, &saved_pte);
 
-		vmp_pagetable_page_pte_became_zero(table_page);
+		vmp_pagetable_page_pte_became_zero(vmps, table_page);
 	}
 	vmp_release_pfn_lock(ipl);
 }
 
 void
-vmp_md_fault_state_release(struct vmp_md_fault_state *state)
+vmp_md_fault_state_release(vmp_procstate_t *vmps,
+    struct vmp_md_fault_state		   *state)
 {
-	vmp_page_release_locked(state->mid_page, NULL);
-	vmp_pagetable_page_pte_became_zero(state->bot_page);
+	vmp_page_release_locked(state->mid_page, &vmps->account);
+	vmp_pagetable_page_pte_became_zero(vmps, state->bot_page);
 }

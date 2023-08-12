@@ -26,7 +26,7 @@ retry:
 	if (!top[unpacked.top].valid) {
 		vmp_release_pfn_lock(ipl);
 		printf("mmu: invalid entry in pml3\n");
-		vmp_fault(addr, for_write, NULL);
+		vmp_fault(addr, for_write, NULL, NULL);
 		goto retry;
 	}
 
@@ -34,7 +34,7 @@ retry:
 	if (!mid[unpacked.mid].valid) {
 		vmp_release_pfn_lock(ipl);
 		printf("mmu: invalid entry in pml2\n");
-		vmp_fault(addr, for_write, NULL);
+		vmp_fault(addr, for_write, NULL, NULL);
 		goto retry;
 	}
 
@@ -42,12 +42,12 @@ retry:
 	if (!bot[unpacked.bot].valid) {
 		vmp_release_pfn_lock(ipl);
 		printf("mmu: invalid entry in pml1\n");
-		vmp_fault(addr, for_write, NULL);
+		vmp_fault(addr, for_write, NULL, NULL);
 		goto retry;
 	} else if (for_write && !bot[unpacked.bot].writeable) {
 		vmp_release_pfn_lock(ipl);
 		printf("mmu: write protected\n");
-		vmp_fault(addr, for_write, NULL);
+		vmp_fault(addr, for_write, NULL, NULL);
 		goto retry;
 	}
 
@@ -77,4 +77,8 @@ main(int argc, char *argv[])
 	access(PGSIZE, true);
 	access(PGSIZE * 2, true);
 	access(PGSIZE * 3, true);
+
+	printf("\n\nDumping pages\n");
+	int vmp_pages_dump(void);
+	vmp_pages_dump();
 }

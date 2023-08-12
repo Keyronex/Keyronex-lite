@@ -36,7 +36,7 @@ vm_page_evict(vmp_procstate_t *ps, pte_t *pte)
 		/* we need to replace this with a transition PTE then */
 		page->referent_pte = V2P((vaddr_t)pte);
 		vmp_md_pte_make_trans(pte, page->pfn);
-		vmp_page_release_locked(page, NULL);
+		vmp_page_release_locked(page, &ps->account);
 		break;
 	}
 

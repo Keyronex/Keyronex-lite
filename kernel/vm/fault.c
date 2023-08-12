@@ -1,10 +1,10 @@
+#include "kdk/libkern.h"
 #include "kdk/vm.h"
 #include "vmp.h"
 
-#if 0
 int
 vm_do_write_fault(vm_vad_t *vad, struct vmp_md_fault_state *state,
-    vaddr_t vaddr, vm_page_t **out)
+    vaddr_t vaddr, vm_account_t *out_account, vm_page_t **out)
 {
 	/* either it's COW, or it's immediately possible to make it writeable */
 	if (vad->flags.cow) {
@@ -14,8 +14,7 @@ vm_do_write_fault(vm_vad_t *vad, struct vmp_md_fault_state *state,
 		state->pte->hw.writeable = 1;
 		if (out) {
 			vm_page_t *page = vmp_md_pte_page(state->pte);
-			*out = page;
-			page->refcnt++;
+			*out = vmp_page_retain_locked(page, out_account);
 		}
 		return kVMFaultRetOK;
 	}
@@ -23,12 +22,12 @@ vm_do_write_fault(vm_vad_t *vad, struct vmp_md_fault_state *state,
 
 int
 vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
-    bool *made_writeable, vm_page_t **out)
+    bool *made_writeable, vm_account_t *out_account, vm_page_t **out)
 {
-	vmp_procstate_t *vmps = SIM_vmps;
+	vmp_procstate_t	 *vmps = SIM_vmps;
 	vm_fault_return_t r;
-	vm_vad_t *vad;
-	ipl_t ipl;
+	vm_vad_t	 *vad;
+	ipl_t		  ipl;
 
 	printf("vm_fault(0x%zx, %d)\n", vaddr, write);
 
@@ -48,7 +47,7 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 		kfatal("Write fault at 0x%zx in nonwriteable vad\n", vaddr);
 
 	ipl = vmp_acquire_pfn_lock();
-	r = vmp_md_wire_pte(vaddr, state);
+	r = vmp_md_wire_pte(vmps, vaddr, state);
 	switch (r) {
 	case kVMFaultRetOK:
 		break;
@@ -64,7 +63,7 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 	} else if (vmp_md_pte_is_valid(state->pte)) {
 		/* it must be valid but nonwriteable and this must be a write */
 		kassert(write && !vmp_md_pte_is_writeable(state->pte));
-		r = vm_do_write_fault(vad, state, vaddr, out);
+		r = vm_do_write_fault(vad, state, vaddr, out_account, out);
 		switch (r) {
 		case kVMFaultRetOK:
 			break;
@@ -76,6 +75,7 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 		}
 		*made_writeable = true;
 	} else if (vmp_md_pte_is_trans(state->pte)) {
+#if 0
 		vm_page_t *page = vmp_md_pte_page(state->pte);
 
 		kassert(page != NULL);
@@ -88,9 +88,11 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 
 		vmp_md_pte_make_hw(state->pte, page->pfn, false);
 		vmp_wsl_insert(vmps, vaddr);
+#endif
+		kfatal("Trans fault\n");
 	} else {
 		vm_page_t *new_page;
-		int r;
+		int	   r;
 
 		/* it must be empty */
 		kassert(vmp_md_pte_is_empty(state->pte));
@@ -98,20 +100,20 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 		if (vad->section == NULL) {
 			/* install demand-zeroed page */
 
-			r = vmp_page_alloc_locked(&new_page,
+			r = vmp_page_alloc_locked(&new_page, &vmps->account,
 			    kPageUseAnonPrivate, false);
 			kassert(r == 0);
 
 			if (out != NULL) {
-				new_page->reference_count++;
-				*out = new_page;
+				*out = vmp_page_retain_locked(new_page,
+				    out_account);
 			}
 
 			vmp_wsl_insert(vmps, vaddr);
 			state->pte->hw.pfn = new_page->pfn;
 			state->pte->hw.valid = 1;
 			state->pte->hw.writeable = 0;
-			state->bot_page->reference_count++;
+			state->bot_page->refcnt++;
 			state->bot_page->used_ptes++;
 		} else {
 			kfatal("Section page\n");
@@ -125,23 +127,20 @@ vm_do_fault(struct vmp_md_fault_state *state, vaddr_t vaddr, bool write,
 
 	return 0;
 }
-#endif
 
 int
-vmp_fault(vaddr_t vaddr, bool write, vm_page_t **out)
+vmp_fault(vaddr_t vaddr, bool write, vm_account_t *out_account, vm_page_t **out)
 {
+	vmp_procstate_t		 *vmps = SIM_vmps;
 	struct vmp_md_fault_state state;
-	bool made_writeable = false;
-
-	kfatal("VM_FAULT at vaddr 0x%zx\n", vaddr);
-
-#if 0
+	bool			  made_writeable = false;
 
 	memset(&state, 0x0, sizeof(state));
 
 retry:
 	made_writeable = false;
-	switch (vm_do_fault(&state, vaddr, write, &made_writeable, out)) {
+	switch (vm_do_fault(&state, vaddr, write, &made_writeable, out_account,
+	    out)) {
 	case kVMFaultRetOK: {
 		ipl_t ipl;
 
@@ -149,14 +148,14 @@ retry:
 			/* unlock the out page, we need to go again */
 			if (out != NULL) {
 				ipl = vmp_acquire_pfn_lock();
-				vmp_page_release_locked(*out);
+				vmp_page_release_locked(*out, out_account);
 				vmp_release_pfn_lock(ipl);
 			}
 			goto retry;
 		}
 
 		ipl = vmp_acquire_pfn_lock();
-		vmp_md_fault_state_release(&state);
+		vmp_md_fault_state_release(vmps, &state);
 		vmp_release_pfn_lock(ipl);
 
 		return kVMFaultRetOK;
@@ -164,5 +163,4 @@ retry:
 	default:
 		kfatal("Unexpected vm_do_fault() return value\n");
 	}
-#endif
 }

@@ -109,13 +109,14 @@ vm_region_add(paddr_t base, size_t length)
 
 	/* mark off the pages used */
 	for (b = 0; b < used / PGSIZE; b++) {
-		bm->pages[b].use = 0;
+		bm->pages[b].use = kPageUsePFNDB;
 		bm->pages[b].refcnt = 1;
+		vmstat.npwired++;
 	}
 
 	/* now zero the remainder */
 	for (; b < bm->npages; b++) {
-		bm->pages[b].use = 0;
+		bm->pages[b].use = kPageUseFree;
 		TAILQ_INSERT_TAIL(&vm_pagequeue_free, &bm->pages[b],
 		    queue_link);
 	}
@@ -272,6 +273,59 @@ vmp_page_release_locked(vm_page_t *page, vm_account_t *account)
 		} else {
 			TAILQ_REMOVE(&vm_pagequeue_standby, page, queue_link);
 			vmstat.nstandby++;
+		}
+	}
+}
+
+static const char *
+vm_page_use_str(enum vm_page_use use)
+{
+	switch (use) {
+	case kPageUseFree:
+		return "free";
+	case kPageUsePFNDB:
+		return "pfndb";
+	case kPageUseAnonPrivate:
+		return "anon-private";
+	case kPageUsePML3:
+		return "PML3";
+	case kPageUsePML2:
+		return "PML2";
+	case kPageUsePML1:
+		return "PML1";
+	default:
+		return "BAD";
+	}
+}
+
+int
+vmp_pages_dump(void)
+{
+	struct vmp_pregion *region;
+
+	printf("Active: %zu, modified: %zu, standby: %zu, free: %zu\n",
+	    vmstat.nactive, vmstat.nmodified, vmstat.nstandby, vmstat.nfree);
+
+	kprintf("\033[7m%-9s%-9s%-9s%-9s%-9s\033[m\n", "free", "del", "priv",
+	    "fork", "file");
+	kprintf("%-9zu%-9zu%-9zu%-9zu%-9zu\n", vmstat.nfree, vmstat.ndeleted,
+	    vmstat.nanonprivate, vmstat.nanonfork, vmstat.nfile);
+	kprintf("\033[7m%-9s%-9s%-9s%-9s%-9s\033[m\n", "share", "pgtbl",
+	    "proto", "kwired", "pwired");
+	kprintf("%-9zu%-9zu%-9zu%-9zu%-9zu\n", vmstat.nanonshare,
+	    vmstat.nprocpgtable, vmstat.nprotopgtable, vmstat.nkwired,
+	    vmstat.npwired);
+
+	TAILQ_FOREACH (region, &pregion_queue, queue_entry) {
+		for (int i = 0; i < region->npages; i++) {
+			vm_page_t *page = &region->pages[i];
+
+			if (page->use == kPageUseFree ||
+			    page->use == kPageUsePFNDB)
+				continue;
+			printf("Page %d: Use %s, RC %d, Used-PTEs %d\n", i,
+			    vm_page_use_str(page->use), page->refcnt,
+			    page->used_ptes);
 		}
 	}
 }

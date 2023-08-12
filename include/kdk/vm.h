@@ -42,7 +42,7 @@ typedef enum vm_protection {
  */
 struct vm_stat {
 	/*! memory by state */
-	size_t nactive, nfree, nmodified, nstandby;
+	size_t npwired, nactive, nfree, nmodified, nstandby;
 
 	/*! memory by use; nfree still counts free. */
 	size_t ndeleted, nanonprivate, nanonfork, nfile, nanonshare,
@@ -51,6 +51,7 @@ struct vm_stat {
 
 enum vm_page_use {
 	kPageUseInvalid,
+	kPageUsePFNDB,
 	kPageUseFree,
 	kPageUseDeleted,
 	kPageUseAnonPrivate,

@@ -114,6 +114,4 @@ vmp_md_pte_make_hw(pte_t *pte, pfn_t pfn, bool writeable)
 	pte->hw.valid = 1;
 }
 
-void vmp_md_fault_state_release(struct vmp_md_fault_state *state);
-
 #endif /* KRX_SOFT_VMP_SOFT_H */

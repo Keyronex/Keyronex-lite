@@ -112,6 +112,15 @@ struct vm_section {
 /*! @brief Release the PFN database lock. */
 #define vmp_release_pfn_lock(IPL) ke_spinlock_release(&vmp_pfn_lock, IPL)
 
+/*!
+ * @post If kVMFaultRetOK, reference held to each pagetable level and used PTE
+ * count incremented on leaf table.
+ "*/
+vm_fault_return_t vmp_md_wire_pte(vmp_procstate_t *vmps, vaddr_t vaddr,
+    struct vmp_md_fault_state *state);
+void		  vmp_md_fault_state_release(vmp_procstate_t *vmps,
+		 struct vmp_md_fault_state		     *state);
+
 int	   vmp_page_alloc_locked(vm_page_t **out, vm_account_t *account,
 	   enum vm_page_use use, bool must);
 void	   vmp_page_free_locked(vm_page_t *page);
@@ -120,10 +129,13 @@ void	   vmp_page_delete_locked(vm_page_t *page, vm_account_t *account,
 vm_page_t *vmp_page_retain_locked(vm_page_t *page, vm_account_t *account);
 void	   vmp_page_release_locked(vm_page_t *page, vm_account_t *account);
 
-int
-vmp_fault(vaddr_t vaddr, bool write, vm_page_t **out);
+int vmp_fault(vaddr_t vaddr, bool write, vm_account_t *out_account,
+    vm_page_t **out);
 
 vm_vad_t *vmp_ps_vad_find(vmp_procstate_t *ps, vaddr_t vaddr);
+
+void vmp_wsl_insert(vmp_procstate_t *ps, vaddr_t vaddr);
+void vmp_wsl_remove(vmp_procstate_t *ps, vaddr_t vaddr);
 
 extern kspinlock_t vmp_pfn_lock;
 
