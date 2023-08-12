@@ -17,14 +17,28 @@
 #include "kdk/port.h"
 #include "kdk/queue.h"
 
-typedef uintptr_t vaddr_t, paddr_t, pfn_t;
-
 #if KRX_PORT_BITS == 64
 #define PFN_BITS 52
 #else
 #define PFN_BITS 20
 #endif
 
+typedef uintptr_t vaddr_t, paddr_t, pfn_t;
+typedef struct vmp_procstate vmp_procstate_t;
+
+/*!
+ * Protection flags.
+ */
+typedef enum vm_protection {
+	kVMRead = 0x1,
+	kVMWrite = 0x2,
+	kVMExecute = 0x4,
+	kVMAll = kVMRead | kVMWrite | kVMExecute,
+} vm_protection_t;
+
+/*!
+ * Global VM statistics.
+ */
 struct vm_stat {
 	/*! memory by state */
 	size_t nactive, nfree, nmodified, nstandby;
@@ -39,6 +53,14 @@ enum vm_page_use {
 	kPageUseFree,
 	kPageUseDeleted,
 	kPageUseAnonPrivate,
+	/*! root pagetable */
+	kPageUsePML4,
+	/* upper middle pagetable */
+	kPageUsePML3,
+	/*! lower middle pagetable */
+	kPageUsePML2,
+	/*! leaf pagetable */
+	kPageUsePML1,
 };
 
 /*!
@@ -137,6 +159,19 @@ void vm_page_release(vm_page_t *page, vm_account_t *account);
  */
 vm_page_t *vm_paddr_to_page(paddr_t paddr);
 
+/*! Allocate anonymous memory in a process. */
+int vm_ps_allocate(vmp_procstate_t *vmps, vaddr_t *vaddrp, size_t size,
+    bool exact);
+
+/*! Map a section view into a process. */
+int vm_ps_map_section_view(vmp_procstate_t *vmps, void *section,
+    vaddr_t *vaddrp, size_t size, off_t offset,
+    vm_protection_t initial_protection, vm_protection_t max_protection,
+    bool inherit_shared, bool cow, bool exact);
+
+/*! Dump the VAD tree of a process.*/
+int vm_ps_dump_vadtree(vmp_procstate_t *vmps);
+
 static inline paddr_t
 vm_page_paddr(vm_page_t *page)
 {
@@ -149,6 +184,7 @@ vm_page_direct_map_addr(vm_page_t *page)
 	return P2V(vm_page_paddr(page));
 }
 
-extern vm_account_t general_account, deleted_account;
+extern struct vm_stat vmstat;
+extern vm_account_t   general_account, deleted_account;
 
 #endif /* KRX_KDK_VM_H */
